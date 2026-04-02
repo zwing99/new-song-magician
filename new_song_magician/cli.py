@@ -6,10 +6,22 @@ import logging
 import click
 
 from .client import PCOClient
+from .gmail import send_report_email
 from .models import Config
-from .reporting import build_plan_song_report, find_folders_by_name, format_dt, render_plan_table
+from .reporting import (
+    arrangement_url,
+    build_plan_song_report,
+    find_folders_by_name,
+    folder_dashboard_url,
+    plan_url,
+    render_full_report_html,
+    render_full_report_markdown,
+    song_url,
+)
 
 BASE_URL = "https://api.planningcenteronline.com"
+DEFAULT_GMAIL_CREDENTIALS_FILE = "gmail-oauth-client-secret.json"
+DEFAULT_GMAIL_TOKEN_FILE = ".gmail-token.json"
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +59,25 @@ def configure_logging(*, verbosity: int) -> None:
     count=True,
     help="Increase logging verbosity. Use -v for INFO and -vv for DEBUG.",
 )
+@click.option(
+    "--gmail-credentials-file",
+    default=DEFAULT_GMAIL_CREDENTIALS_FILE,
+    show_default=True,
+    envvar="PCO_GMAIL_CREDENTIALS_FILE",
+    help="Google OAuth client secrets JSON used when sending Gmail messages.",
+)
+@click.option(
+    "--gmail-token-file",
+    default=DEFAULT_GMAIL_TOKEN_FILE,
+    show_default=True,
+    envvar="PCO_GMAIL_TOKEN_FILE",
+    help="Path for the cached Gmail OAuth token JSON.",
+)
+@click.option(
+    "--gmail-from",
+    envvar="PCO_GMAIL_FROM",
+    help="Optional From header to use for Gmail messages.",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -56,6 +87,9 @@ def cli(
     base_url: str,
     timeout: float,
     verbose: int,
+    gmail_credentials_file: str,
+    gmail_token_file: str,
+    gmail_from: str | None,
 ) -> None:
     """Planning Center Services reporting utilities."""
     configure_logging(verbosity=verbose)
@@ -65,6 +99,9 @@ def cli(
         token=token,
         base_url=base_url,
         timeout=timeout,
+        gmail_credentials_file=gmail_credentials_file,
+        gmail_token_file=gmail_token_file,
+        gmail_from=gmail_from,
     )
 
 
@@ -130,6 +167,23 @@ def lookup_folder(
     envvar="PCO_REVIEW_FOLDER_REVIEW_WINDOW_YEARS",
     help="Flag songs whose previous play is older than this many years.",
 )
+@click.option(
+    "--email",
+    "emails",
+    multiple=True,
+    envvar="PCO_REVIEW_FOLDER_EMAILS",
+    help=(
+        "Send the report via Gmail to this address. Repeat the flag as needed. "
+        "The env var accepts a whitespace-separated list."
+    ),
+)
+@click.option(
+    "--print/--no-print",
+    "print_output",
+    default=True,
+    show_default=True,
+    help="Print the report to stdout.",
+)
 @click.option("--json-output", is_flag=True, help="Emit machine-readable JSON.")
 @click.pass_obj
 def review_folder(
@@ -138,6 +192,8 @@ def review_folder(
     days_ahead: int,
     all_future: bool,
     review_window_years: int,
+    emails: tuple[str, ...],
+    print_output: bool,
     json_output: bool,
 ) -> None:
     """Report upcoming plan songs and whether they need review."""
@@ -161,41 +217,41 @@ def review_folder(
                 "service_type_name": row.service_type_name,
                 "plan_id": row.plan_id,
                 "plan_title": row.plan_title,
+                "plan_url": plan_url(row.plan_id),
                 "sort_date": row.sort_date.isoformat() if row.sort_date else None,
                 "song_id": row.song_id,
                 "song_title": row.song_title,
+                "arrangement_id": row.arrangement_id,
+                "arrangement_name": row.arrangement_name,
+                "arrangement_url": (
+                    arrangement_url(row.song_id, row.arrangement_id) if row.arrangement_id else None
+                ),
+                "key_name": row.key_name,
+                "song_url": song_url(row.song_id),
                 "needs_review": row.needs_review,
                 "last_played_at": row.last_played_at.isoformat() if row.last_played_at else None,
                 "last_plan_dates": row.last_plan_dates,
                 "last_service_type_name": row.last_service_type_name,
                 "last_plan_id": row.last_plan_id,
+                "last_plan_url": plan_url(row.last_plan_id) if row.last_plan_id else None,
                 "last_item_id": row.last_item_id,
+                "folder_url": folder_dashboard_url(folder_id),
             }
             for row in reports
         ]
-        click.echo(json.dumps(payload, indent=2))
+        if print_output:
+            click.echo(json.dumps(payload, indent=2))
         return
 
-    if not reports:
-        click.echo("No upcoming plans with linked songs found.")
-        return
+    report_markdown = render_full_report_markdown(reports)
+    if print_output:
+        click.echo(report_markdown)
 
-    logger.debug("Printing %d report rows", len(reports))
-    plan_groups: list[tuple[tuple[str, str], list]] = []
-    for row in reports:
-        plan_key = (row.service_type_id, row.plan_id)
-        if not plan_groups or plan_groups[-1][0] != plan_key:
-            plan_groups.append((plan_key, [row]))
-        else:
-            plan_groups[-1][1].append(row)
-
-    for index, (_, plan_rows) in enumerate(plan_groups):
-        first = plan_rows[0]
-        if index > 0:
-            click.echo()
-        click.echo(
-            f"## {format_dt(first.sort_date)} | {first.service_type_name} | "
-            f"{first.plan_title} (plan {first.plan_id})"
+    if emails:
+        send_report_email(
+            config,
+            emails,
+            subject=f"New Song Magician report for folder {folder_id}",
+            text_body=report_markdown,
+            html_body=render_full_report_html(reports, folder_id=folder_id),
         )
-        click.echo()
-        click.echo(render_plan_table(plan_rows))

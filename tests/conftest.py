@@ -54,6 +54,9 @@ def api() -> PCOClient:
             token=None,
             base_url=BASE_URL,
             timeout=30.0,
+            gmail_credentials_file="gmail-oauth-client-secret.json",
+            gmail_token_file=".gmail-token.json",
+            gmail_from=None,
         )
     )
     try:
@@ -95,12 +98,34 @@ def song(song_id: str, title: str) -> dict[str, Any]:
     return {"id": song_id, "type": "Song", "attributes": {"title": title}}
 
 
-def item(item_id: str, song_id: str) -> dict[str, Any]:
+def arrangement(arrangement_id: str, song_id: str, name: str) -> dict[str, Any]:
+    return {
+        "id": arrangement_id,
+        "type": "Arrangement",
+        "attributes": {"name": name},
+        "relationships": {"song": {"data": {"id": song_id, "type": "Song"}}},
+    }
+
+
+def item(
+    item_id: str,
+    song_id: str,
+    *,
+    arrangement_id: str | None = None,
+    key_name: str | None = None,
+) -> dict[str, Any]:
     return {
         "id": item_id,
         "type": "Item",
-        "attributes": {"item_type": "song"},
-        "relationships": {"song": {"data": {"id": song_id, "type": "Song"}}},
+        "attributes": {"item_type": "song", "key_name": key_name},
+        "relationships": {
+            "song": {"data": {"id": song_id, "type": "Song"}},
+            "arrangement": (
+                {"data": {"id": arrangement_id, "type": "Arrangement"}}
+                if arrangement_id
+                else {"data": None}
+            ),
+        },
     }
 
 

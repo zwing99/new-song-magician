@@ -135,3 +135,6 @@ wheels/
 
 # Local env/config
 .envrc
+secrets/
+gmail-oauth-client-secret.json
+.gmail-token.json

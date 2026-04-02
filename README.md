@@ -7,6 +7,7 @@ Small CLI for Planning Center Services that:
 - lists linked song items only
 - flags songs that have not been scheduled in the last N years
 - shows the last time they were scheduled in the folder for songs that do not need review
+- can send the rendered report through Gmail to one or more recipients
 - supports `WARNING` by default, `INFO` with `-v`, and `DEBUG` with `-vv`
 - renders report output as GitHub-flavored Markdown tables
 
@@ -52,17 +53,15 @@ Install dependencies with `uv`:
 uv sync
 ```
 
-Install dev tools too:
-
-```bash
-uv sync --group dev
-```
-
 Or use the Just recipes:
 
 ```bash
 just sync
 ```
+
+If you plan to send reports with Gmail, the Google client libraries are included in the main
+dependencies. A first Gmail-enabled run will open a browser for OAuth consent and cache a token
+locally.
 
 ## Quality Checks
 
@@ -78,19 +77,19 @@ Pytest is configured in `pyproject.toml` to run verbosely and print coverage.
 Format:
 
 ```bash
-uv run --group dev ruff format .
+uv run ruff format .
 ```
 
 Lint:
 
 ```bash
-uv run --group dev ruff check .
+uv run ruff check .
 ```
 
 Type check:
 
 ```bash
-uv run --group dev ty check
+uv run ty check
 ```
 
 Equivalent `just` commands:
@@ -131,11 +130,70 @@ JSON output:
 uv run python main.py review-folder 123456 --json-output
 ```
 
+Email the human-readable report and still print it to stdout:
+
+```bash
+uv run python main.py review-folder 123456 \
+  --email worship@example.com \
+  --email music@example.com
+```
+
+Email the report without printing it locally:
+
+```bash
+uv run python main.py review-folder 123456 \
+  --email worship@example.com \
+  --no-print
+```
+
+Use an env var for the recipient list:
+
+```bash
+export PCO_REVIEW_FOLDER_EMAILS="worship@example.com music@example.com"
+uv run python main.py review-folder 123456
+```
+
 Change the review threshold:
 
 ```bash
 uv run python main.py review-folder 123456 --review-window-years 3
 ```
+
+## Gmail Setup
+
+To send email with the Gmail API, create OAuth credentials for a desktop app and point the CLI at
+the downloaded client secrets file.
+
+1. Create or select a Google Cloud project.
+2. Enable the Gmail API for that project.
+3. Configure the OAuth consent screen for your account or Workspace org.
+4. Create an OAuth client ID for a Desktop app.
+5. Download the client credentials JSON file.
+
+Place the downloaded file somewhere local, then either use the defaults:
+
+```bash
+mv ~/Downloads/client_secret_*.json ./gmail-oauth-client-secret.json
+```
+
+Or configure explicit paths:
+
+```bash
+export PCO_GMAIL_CREDENTIALS_FILE=/absolute/path/to/client-secret.json
+export PCO_GMAIL_TOKEN_FILE=/absolute/path/to/.gmail-token.json
+export PCO_GMAIL_FROM="Worship Team <worship@example.com>"
+```
+
+On the first run that includes `--email`, the CLI starts a local browser-based OAuth flow using the
+`https://www.googleapis.com/auth/gmail.send` scope. After you approve access, it writes the refresh
+token cache to `PCO_GMAIL_TOKEN_FILE` or `.gmail-token.json` by default. Later runs reuse and
+refresh that token automatically.
+
+Useful Google references:
+
+- Gmail send API: <https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send>
+- Gmail sending guide: <https://developers.google.com/workspace/gmail/api/guides/sending>
+- Gmail Python quickstart: <https://developers.google.com/workspace/gmail/api/quickstart/python>
 
 ## Notes
 
@@ -144,6 +202,9 @@ The report checks each upcoming song against the most recent prior `song_schedul
 The CLI requires either `PCO_TOKEN` or both `PCO_APP_ID` and `PCO_SECRET`. If neither is provided, it exits with a usage error.
 
 Logs use Python's default logging format. The default level is `WARNING`; pass `-v` for `INFO` or `-vv` for `DEBUG`. Normal report output and `--json-output` still stay on stdout.
+
+Human-readable `review-folder` output prints by default. Pass `--no-print` to suppress stdout output,
+which is useful when you only want to email the report. JSON output also respects `--no-print`.
 
 The song title `Doxology` is always ignored and will never appear in the report.
 

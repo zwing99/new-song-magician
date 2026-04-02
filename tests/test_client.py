@@ -22,6 +22,9 @@ def test_client_requires_auth_credentials() -> None:
                 token=None,
                 base_url=BASE_URL,
                 timeout=30.0,
+                gmail_credentials_file="gmail-oauth-client-secret.json",
+                gmail_token_file=".gmail-token.json",
+                gmail_from=None,
             )
         )
 

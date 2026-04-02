@@ -11,6 +11,9 @@ class Config:
     token: str | None
     base_url: str
     timeout: float
+    gmail_credentials_file: str
+    gmail_token_file: str
+    gmail_from: str | None
 
 
 @dataclass
@@ -31,6 +34,9 @@ class PlanSongReport:
     sort_date: datetime | None
     song_id: str
     song_title: str
+    arrangement_id: str | None
+    arrangement_name: str | None
+    key_name: str | None
     needs_review: bool
     last_played_at: datetime | None
     last_plan_dates: str | None

@@ -4,24 +4,24 @@ default:
   @just --list
 
 sync:
-  uv sync --group dev
+  uv sync
 
 format:
-  uv run --group dev ruff format .
+  uv run ruff format .
 
 format-check:
-  uv run --group dev ruff format --check .
+  uv run ruff format --check .
 
 lint:
-  uv run --group dev ruff check .
+  uv run ruff check .
 
 lint-fix:
-  uv run --group dev ruff check --fix .
+  uv run ruff check --fix .
 
 typecheck:
-  uv run --group dev ty check
+  uv run ty check
 
 test:
-  uv run --group dev pytest
+  uv run pytest
 
 check: format-check lint typecheck test

@@ -7,6 +7,7 @@ import responses
 from conftest import (
     FIXED_NOW,
     add_common_responses,
+    arrangement,
     item,
     payload,
     plan,
@@ -15,7 +16,12 @@ from conftest import (
 )
 
 from new_song_magician.client import PCOClient
-from new_song_magician.reporting import build_plan_song_report, render_plan_table
+from new_song_magician.reporting import (
+    build_plan_song_report,
+    render_full_report_html,
+    render_full_report_markdown,
+    render_plan_table,
+)
 
 
 @responses.activate
@@ -36,7 +42,13 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
     )
     responses.get(
         "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-1/items",
-        json=payload([item("item-1", "song-1")], included=[song("song-1", "King of Glory")]),
+        json=payload(
+            [item("item-1", "song-1", arrangement_id="arr-1", key_name="D")],
+            included=[
+                song("song-1", "King of Glory"),
+                arrangement("arr-1", "song-1", "The Worship Initiative"),
+            ],
+        ),
     )
     responses.get(
         "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-2/items",
@@ -264,11 +276,14 @@ def test_rendered_table_shows_review_and_ok_rows(api: PCOClient) -> None:
     rendered = render_plan_table(reports)
     header_line = rendered.splitlines()[0]
     assert "Status" in header_line
-    assert "Song ID" in header_line
+    assert "Song Link" in header_line
     assert "Last Scheduled" in header_line
+    assert "Last Plan Link" in header_line
     assert "OK" in rendered
     assert "REVIEW" in rendered
     assert "never scheduled in folder" in rendered
+    assert "https://services.planningcenteronline.com/songs/song-old" in rendered
+    assert "https://services.planningcenteronline.com/plans/recent-plan" in rendered
 
 
 @responses.activate
@@ -292,7 +307,7 @@ def test_build_report_handles_multi_page_plan_items(api: PCOClient) -> None:
     )
     responses.get(
         "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-1/items"
-        "?include=song&offset=1&per_page=100",
+        "?include=song%2Carrangement%2Ckey&offset=1&per_page=100",
         json=payload(
             [item("item-2", "song-2")],
             included=[song("song-2", "Cornerstone")],
@@ -318,3 +333,55 @@ def test_build_report_handles_multi_page_plan_items(api: PCOClient) -> None:
 
     assert len(reports) == 2
     assert [row.song_title for row in reports] == ["King of Glory", "Cornerstone"]
+
+
+@responses.activate
+def test_full_report_rendering_includes_folder_plan_and_song_links(api: PCOClient) -> None:
+    add_common_responses(responses, folder_id="342915")
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans",
+        json=payload([plan("plan-1", "Plan One", "2026-04-10T10:00:00Z")]),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-2/plans",
+        json=payload([]),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-1/items",
+        json=payload(
+            [item("item-1", "song-1", arrangement_id="arr-1", key_name="D")],
+            included=[
+                song("song-1", "King of Glory"),
+                arrangement("arr-1", "song-1", "The Worship Initiative"),
+            ],
+        ),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/songs/song-1/song_schedules",
+        json=payload([]),
+    )
+
+    reports = build_plan_song_report(
+        api,
+        folder_id="342915",
+        days_ahead=30,
+        all_future=False,
+        review_window_years=3,
+    )
+
+    markdown = render_full_report_markdown(reports)
+    html = render_full_report_html(reports, folder_id="342915")
+
+    assert "https://services.planningcenteronline.com/plans/plan-1" in markdown
+    assert "https://services.planningcenteronline.com/songs/song-1" in markdown
+    assert "The Worship Initiative" in html
+    assert "Scheduled key: D" in html
+    assert (
+        'href="https://services.planningcenteronline.com/songs/song-1/arrangements/arr-1"' in html
+    )
+    assert "Upcoming song review digest" in html
+    assert "Needs Review" in html
+    assert "Song ID: song-1" in html
+    assert 'href="https://services.planningcenteronline.com/dashboard/342915"' in html
+    assert 'href="https://services.planningcenteronline.com/plans/plan-1"' in html
+    assert 'href="https://services.planningcenteronline.com/songs/song-1"' in html
