@@ -7,6 +7,7 @@ This repo contains a Planning Center Services CLI for reviewing upcoming plan so
 ## Current Structure
 
 - `main.py` is a thin entrypoint only.
+- `run-from-cron.sh` is the non-interactive wrapper for scheduled runs that load repo env vars and invoke `review-folder`.
 - `new_song_magician/cli.py` owns Click commands and logging setup.
 - `new_song_magician/client.py` owns the Planning Center HTTP client.
 - `new_song_magician/gmail.py` owns Gmail OAuth loading and email delivery.
@@ -22,6 +23,7 @@ This repo contains a Planning Center Services CLI for reviewing upcoming plan so
 - Keep human-readable output on stdout and progress logging on stderr.
 - When adding delivery channels like email, keep stdout output separately controllable from side effects.
 - Keep local OAuth secrets and token caches out of git; prefer repo-local ignored paths configured through env vars.
+- Scheduled automation should use `run-from-cron.sh` or an equivalent wrapper instead of assuming cron loads `.envrc`.
 - Keep this `AGENTS.md` file up to date when repo workflow, tooling, or completion expectations change.
 
 ## Completion Standard
