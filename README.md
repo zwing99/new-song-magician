@@ -195,6 +195,42 @@ Useful Google references:
 - Gmail sending guide: <https://developers.google.com/workspace/gmail/api/guides/sending>
 - Gmail Python quickstart: <https://developers.google.com/workspace/gmail/api/quickstart/python>
 
+## Scheduling With Cron
+
+The repo includes a non-interactive wrapper script for cron and similar schedulers:
+
+```bash
+./run-from-cron.sh
+```
+
+That script:
+
+- changes into the repo root
+- loads `.envrc` if present
+- uses `PCO_REVIEW_FOLDER_FOLDER_ID` if set, or accepts the folder ID as its first argument
+- runs `review-folder` with `--no-print`
+
+Example manual run:
+
+```bash
+./run-from-cron.sh
+```
+
+Or with an explicit folder ID:
+
+```bash
+./run-from-cron.sh 342915
+```
+
+Example cron entry for every Friday at 5:00 AM on a machine set to `America/Chicago`:
+
+```cron
+0 5 * * 5 cd /Users/zacoler/src/new-song-magician && ./run-from-cron.sh
+```
+
+If `uv` is not on cron's default `PATH`, use an explicit path in the cron entry or in the script
+environment.
+
 ## Notes
 
 The report checks each upcoming song against the most recent prior `song_schedule` from a previous plan within the specified folder before the current time. Future plans are ignored when determining the last scheduled occurrence. If the previous schedule is older than the review window, or no prior schedule exists in that folder, the song is marked `REVIEW`.

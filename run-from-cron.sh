@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if ! command -v uv >/dev/null 2>&1 && [[ -x "/home/linuxbrew/.linuxbrew/bin/uv" ]]; then
+  export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+fi
+
 if [[ -f "$SCRIPT_DIR/.envrc" ]]; then
   set -a
   # shellcheck disable=SC1091
