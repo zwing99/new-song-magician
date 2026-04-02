@@ -245,3 +245,7 @@ which is useful when you only want to email the report. JSON output also respect
 The song title `Doxology` is always ignored and will never appear in the report.
 
 Human-readable report output is rendered with the `tabulate` library using GitHub-flavored Markdown tables.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
