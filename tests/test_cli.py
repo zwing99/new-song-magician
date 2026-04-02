@@ -68,6 +68,8 @@ def test_review_folder_cli_json_output(runner: CliRunner) -> None:
                     plan_dates="Apr 10, 2025",
                     service_type_name="Sunday AM",
                     item_id="older-item",
+                    arrangement_name="The Worship Initiative",
+                    key_name="C",
                 )
             ]
         ),
@@ -90,6 +92,8 @@ def test_review_folder_cli_json_output(runner: CliRunner) -> None:
     assert '"song_title": "King of Glory"' in result.output
     assert '"arrangement_name": "The Worship Initiative"' in result.output
     assert '"key_name": "D"' in result.output
+    assert '"recent_keys": [' in result.output
+    assert '"key_comparison": "Different from recent keys"' in result.output
     assert (
         '"arrangement_url": "https://services.planningcenteronline.com/songs/song-1/arrangements/arr-1"'
         in result.output

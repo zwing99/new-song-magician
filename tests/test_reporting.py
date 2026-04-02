@@ -43,7 +43,7 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
     responses.get(
         "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-1/items",
         json=payload(
-            [item("item-1", "song-1", arrangement_id="arr-1", key_name="D")],
+            [item("item-1", "song-1", arrangement_id="arr-1", key_name="C")],
             included=[
                 song("song-1", "King of Glory"),
                 arrangement("arr-1", "song-1", "The Worship Initiative"),
@@ -52,7 +52,10 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
     )
     responses.get(
         "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-2/items",
-        json=payload([item("item-2", "song-1")], included=[song("song-1", "King of Glory")]),
+        json=payload(
+            [item("item-2", "song-1", key_name="C")],
+            included=[song("song-1", "King of Glory")],
+        ),
     )
 
     captured_before_values: list[str] = []
@@ -79,6 +82,8 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
                     plan_dates="May 1, 2025",
                     service_type_name="Sunday AM",
                     item_id="prior-item",
+                    arrangement_name="Acoustic",
+                    key_name="D",
                 ),
             ]
         )
@@ -97,11 +102,14 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert len(reports) == 2
     assert [row.last_plan_id for row in reports] == ["prior-folder-plan", "prior-folder-plan"]
     assert [row.last_service_type_name for row in reports] == ["Sunday AM", "Sunday AM"]
+    assert [row.recent_keys for row in reports] == [("D",), ("D",)]
+    assert [row.key_comparison for row in reports] == ["Different from recent keys"] * 2
     assert captured_before_values == [FIXED_NOW.isoformat()]
 
 
@@ -131,6 +139,7 @@ def test_build_report_flags_brand_new_song_in_folder(api: PCOClient) -> None:
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert len(reports) == 1
@@ -186,6 +195,7 @@ def test_build_report_skips_current_plan_if_api_returns_it(api: PCOClient) -> No
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert len(reports) == 1
@@ -215,6 +225,7 @@ def test_build_report_ignores_doxology(api: PCOClient) -> None:
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert reports == []
@@ -270,6 +281,7 @@ def test_rendered_table_shows_review_and_ok_rows(api: PCOClient) -> None:
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert len(reports) == 2
@@ -329,10 +341,56 @@ def test_build_report_handles_multi_page_plan_items(api: PCOClient) -> None:
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     assert len(reports) == 2
     assert [row.song_title for row in reports] == ["King of Glory", "Cornerstone"]
+
+
+@responses.activate
+def test_build_report_can_disable_key_history_comparison(api: PCOClient) -> None:
+    add_common_responses(responses)
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans",
+        json=payload([plan("plan-1", "Plan One", "2026-04-10T10:00:00Z")]),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-2/plans",
+        json=payload([]),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/service_types/st-1/plans/plan-1/items",
+        json=payload([item("item-1", "song-1", key_name="C")], included=[song("song-1", "King")]),
+    )
+    responses.get(
+        "https://api.planningcenteronline.com/services/v2/songs/song-1/song_schedules",
+        json=payload(
+            [
+                song_schedule(
+                    plan_id="older-plan",
+                    service_type_id="st-1",
+                    plan_sort_date="2025-04-10T10:00:00Z",
+                    plan_dates="Apr 10, 2025",
+                    service_type_name="Sunday AM",
+                    item_id="older-item",
+                    key_name="D",
+                )
+            ]
+        ),
+    )
+
+    reports = build_plan_song_report(
+        api,
+        folder_id="folder-1",
+        days_ahead=30,
+        all_future=False,
+        review_window_years=3,
+        key_history_count=0,
+    )
+
+    assert reports[0].recent_keys == ()
+    assert reports[0].key_comparison is None
 
 
 @responses.activate
@@ -367,6 +425,7 @@ def test_full_report_rendering_includes_folder_plan_and_song_links(api: PCOClien
         days_ahead=30,
         all_future=False,
         review_window_years=3,
+        key_history_count=3,
     )
 
     markdown = render_full_report_markdown(reports)

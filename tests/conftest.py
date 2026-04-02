@@ -137,6 +137,8 @@ def song_schedule(
     plan_dates: str,
     service_type_name: str,
     item_id: str,
+    arrangement_name: str | None = None,
+    key_name: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": f"ss-{plan_id}-{item_id}",
@@ -145,6 +147,8 @@ def song_schedule(
             "plan_sort_date": plan_sort_date,
             "plan_dates": plan_dates,
             "service_type_name": service_type_name,
+            "arrangement_name": arrangement_name,
+            "key_name": key_name,
         },
         "relationships": {
             "plan": {"data": {"id": plan_id, "type": "Plan"}},

@@ -57,6 +57,24 @@ def arrangement_url(song_id: str, arrangement_id: str) -> str:
     return f"{SERVICES_BASE_URL}/songs/{song_id}/arrangements/{arrangement_id}"
 
 
+def format_recent_keys(recent_keys: tuple[str, ...]) -> str:
+    return ", ".join(recent_keys) if recent_keys else "none"
+
+
+def compare_key_history(current_key: str | None, recent_keys: tuple[str, ...]) -> str | None:
+    if not recent_keys:
+        return None
+    if not current_key:
+        return "Upcoming key unknown"
+
+    unique_recent_keys = set(recent_keys)
+    if current_key not in unique_recent_keys:
+        return "Different from recent keys"
+    if len(unique_recent_keys) == 1:
+        return "Matches recent keys"
+    return "Matches one recent key"
+
+
 def render_plan_table(rows: list[PlanSongReport]) -> str:
     table_rows: list[dict[str, str]] = []
 
@@ -81,6 +99,9 @@ def render_plan_table(rows: list[PlanSongReport]) -> str:
                 "Status": status,
                 "Song": row.song_title,
                 "Song Link": song_url(row.song_id),
+                "Current Key": row.key_name or "unknown",
+                "Recent Keys": format_recent_keys(row.recent_keys),
+                "Key Comparison": row.key_comparison or "",
                 "Last Scheduled": last_scheduled,
                 "Last Plan Link": last_plan_link,
             }
@@ -127,6 +148,13 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
             else '<span style="color:#9ca3af;font-size:13px;">No arrangement linked</span>'
         )
         key_cell = escape(row.key_name or "Unknown key")
+        recent_keys_cell = escape(format_recent_keys(row.recent_keys))
+        key_comparison_cell = (
+            '<div style="margin-top:4px;font-size:13px;color:#475467;">'
+            f"{escape(row.key_comparison)}</div>"
+            if row.key_comparison
+            else ""
+        )
 
         body_rows.append(
             f'<tr style="background:{status_bg if row.needs_review else "#ffffff"};">'
@@ -144,7 +172,10 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
             '<div style="margin-top:10px;font-size:13px;color:#475467;">Arrangement: '
             f"{arrangement_cell}</div>"
             '<div style="margin-top:4px;font-size:13px;color:#475467;">Scheduled key: '
-            f"{key_cell}</div></td>"
+            f"{key_cell}</div>"
+            '<div style="margin-top:4px;font-size:13px;color:#475467;">Recent keys: '
+            f"{recent_keys_cell}</div>"
+            f"{key_comparison_cell}</td>"
             '<td style="border-top:1px solid #e5e7eb;padding:16px 12px;vertical-align:top;">'
             f'<div style="font-size:14px;color:#111827;">{escape(last_scheduled)}</div>'
             "</td>"
@@ -435,7 +466,7 @@ def get_last_song_history_before(
             continue
         return history
 
-    return SongHistory(None, None, None, None, None)
+    return SongHistory(None, None, None, None, None, None, None)
 
 
 def get_song_history_candidates_before(
@@ -476,6 +507,8 @@ def get_song_history_candidates_before(
                 last_played_at=parse_dt(attrs.get("plan_sort_date")),
                 last_plan_dates=attrs.get("plan_dates"),
                 last_service_type_name=attrs.get("service_type_name"),
+                arrangement_name=attrs.get("arrangement_name"),
+                key_name=attrs.get("key_name"),
                 last_plan_id=row_plan_id,
                 last_item_id=((rels.get("item") or {}).get("data") or {}).get("id"),
             )
@@ -491,6 +524,7 @@ def build_plan_song_report(
     days_ahead: int | None,
     all_future: bool,
     review_window_years: int,
+    key_history_count: int,
 ) -> list[PlanSongReport]:
     service_types = get_folder_service_types(api, folder_id)
     folder_service_type_ids = {service_type["id"] for service_type in service_types}
@@ -575,8 +609,15 @@ def build_plan_song_report(
                     for candidate in history_candidates
                     if candidate.last_plan_id != plan_id
                 ),
-                SongHistory(None, None, None, None, None),
+                SongHistory(None, None, None, None, None, None, None),
             )
+
+            recent_key_histories = tuple(
+                candidate.key_name
+                for candidate in history_candidates
+                if candidate.last_plan_id != plan_id and candidate.key_name
+            )[:key_history_count]
+            key_comparison = compare_key_history(key_name, recent_key_histories)
 
             last_played_at = history.last_played_at
             needs_review = last_played_at is None or last_played_at < cutoff
@@ -593,6 +634,8 @@ def build_plan_song_report(
                     arrangement_id=arrangement_id,
                     arrangement_name=arrangement_name,
                     key_name=key_name,
+                    recent_keys=recent_key_histories,
+                    key_comparison=key_comparison,
                     needs_review=needs_review,
                     last_played_at=last_played_at,
                     last_plan_dates=history.last_plan_dates,

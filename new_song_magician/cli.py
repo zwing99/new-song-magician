@@ -168,6 +168,17 @@ def lookup_folder(
     help="Flag songs whose previous play is older than this many years.",
 )
 @click.option(
+    "--key-history-count",
+    type=click.IntRange(min=0),
+    default=3,
+    show_default=True,
+    envvar="PCO_REVIEW_FOLDER_KEY_HISTORY_COUNT",
+    help=(
+        "Compare the upcoming key against this many previous in-folder song schedules. "
+        "Use 0 to disable key history comparison."
+    ),
+)
+@click.option(
     "--email",
     "emails",
     multiple=True,
@@ -192,6 +203,7 @@ def review_folder(
     days_ahead: int,
     all_future: bool,
     review_window_years: int,
+    key_history_count: int,
     emails: tuple[str, ...],
     print_output: bool,
     json_output: bool,
@@ -206,6 +218,7 @@ def review_folder(
             days_ahead=None if all_future else days_ahead,
             all_future=all_future,
             review_window_years=review_window_years,
+            key_history_count=key_history_count,
         )
     finally:
         api.close()
@@ -227,6 +240,8 @@ def review_folder(
                     arrangement_url(row.song_id, row.arrangement_id) if row.arrangement_id else None
                 ),
                 "key_name": row.key_name,
+                "recent_keys": list(row.recent_keys),
+                "key_comparison": row.key_comparison,
                 "song_url": song_url(row.song_id),
                 "needs_review": row.needs_review,
                 "last_played_at": row.last_played_at.isoformat() if row.last_played_at else None,

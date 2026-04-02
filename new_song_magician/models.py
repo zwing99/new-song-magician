@@ -21,6 +21,8 @@ class SongHistory:
     last_played_at: datetime | None
     last_plan_dates: str | None
     last_service_type_name: str | None
+    arrangement_name: str | None
+    key_name: str | None
     last_plan_id: str | None
     last_item_id: str | None
 
@@ -37,6 +39,8 @@ class PlanSongReport:
     arrangement_id: str | None
     arrangement_name: str | None
     key_name: str | None
+    recent_keys: tuple[str, ...]
+    key_comparison: str | None
     needs_review: bool
     last_played_at: datetime | None
     last_plan_dates: str | None
