@@ -18,6 +18,7 @@ from conftest import (
 from new_song_magician.client import PCOClient
 from new_song_magician.reporting import (
     build_plan_song_report,
+    normalize_key_name,
     render_full_report_html,
     render_full_report_markdown,
     render_plan_table,
@@ -111,6 +112,11 @@ def test_build_report_uses_last_past_schedule_in_folder(api: PCOClient) -> None:
     assert [row.recent_keys for row in reports] == [("D",), ("D",)]
     assert [row.key_comparison for row in reports] == ["Different from recent keys"] * 2
     assert captured_before_values == [FIXED_NOW.isoformat()]
+
+
+def test_normalize_key_name_and_recent_key_formatting() -> None:
+    assert normalize_key_name("Bb: Original") == "Bb"
+    assert normalize_key_name("A: 1/2 Step Lower Than Original") == "A"
 
 
 @responses.activate

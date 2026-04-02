@@ -39,6 +39,7 @@ class PlanSongReport:
     arrangement_id: str | None
     arrangement_name: str | None
     key_name: str | None
+    original_key: str | None
     recent_keys: tuple[str, ...]
     key_comparison: str | None
     needs_review: bool

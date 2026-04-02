@@ -57,18 +57,37 @@ def arrangement_url(song_id: str, arrangement_id: str) -> str:
     return f"{SERVICES_BASE_URL}/songs/{song_id}/arrangements/{arrangement_id}"
 
 
+def normalize_key_name(key_name: str | None) -> str | None:
+    if not key_name:
+        return None
+    return key_name.split(":", 1)[0].strip()
+
+
+def extract_original_key_name(*key_names: str | None) -> str | None:
+    for key_name in key_names:
+        if not key_name or ":" not in key_name:
+            continue
+        normalized_key, descriptor = key_name.split(":", 1)
+        if descriptor.strip().casefold() == "original":
+            return normalized_key.strip()
+    return None
+
+
 def format_recent_keys(recent_keys: tuple[str, ...]) -> str:
-    return ", ".join(recent_keys) if recent_keys else "none"
+    if not recent_keys:
+        return "none"
+    return ", ".join(recent_keys)
 
 
 def compare_key_history(current_key: str | None, recent_keys: tuple[str, ...]) -> str | None:
     if not recent_keys:
         return None
-    if not current_key:
+    normalized_current_key = normalize_key_name(current_key)
+    if not normalized_current_key:
         return "Upcoming key unknown"
 
     unique_recent_keys = set(recent_keys)
-    if current_key not in unique_recent_keys:
+    if normalized_current_key not in unique_recent_keys:
         return "Different from recent keys"
     if len(unique_recent_keys) == 1:
         return "Matches recent keys"
@@ -100,6 +119,7 @@ def render_plan_table(rows: list[PlanSongReport]) -> str:
                 "Song": row.song_title,
                 "Song Link": song_url(row.song_id),
                 "Current Key": row.key_name or "unknown",
+                "Original Key": row.original_key or "",
                 "Recent Keys": format_recent_keys(row.recent_keys),
                 "Key Comparison": row.key_comparison or "",
                 "Last Scheduled": last_scheduled,
@@ -147,7 +167,13 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
             if row.arrangement_id
             else '<span style="color:#9ca3af;font-size:13px;">No arrangement linked</span>'
         )
-        key_cell = escape(row.key_name or "Unknown key")
+        key_cell = escape(normalize_key_name(row.key_name) or "Unknown key")
+        original_key_cell = (
+            '<div style="margin-top:4px;font-size:13px;color:#475467;">Original key: '
+            f"{escape(row.original_key)}</div>"
+            if row.original_key
+            else ""
+        )
         recent_keys_cell = escape(format_recent_keys(row.recent_keys))
         key_comparison_cell = (
             '<div style="margin-top:4px;font-size:13px;color:#475467;">'
@@ -173,6 +199,7 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
             f"{arrangement_cell}</div>"
             '<div style="margin-top:4px;font-size:13px;color:#475467;">Scheduled key: '
             f"{key_cell}</div>"
+            f"{original_key_cell}"
             '<div style="margin-top:4px;font-size:13px;color:#475467;">Recent keys: '
             f"{recent_keys_cell}</div>"
             f"{key_comparison_cell}</td>"
@@ -612,11 +639,17 @@ def build_plan_song_report(
                 SongHistory(None, None, None, None, None, None, None),
             )
 
-            recent_key_histories = tuple(
+            raw_recent_key_histories = tuple(
                 candidate.key_name
                 for candidate in history_candidates
-                if candidate.last_plan_id != plan_id and candidate.key_name
+                if candidate.last_plan_id != plan_id
             )[:key_history_count]
+            recent_key_histories = tuple(
+                normalized_key
+                for key_name in raw_recent_key_histories
+                if (normalized_key := normalize_key_name(key_name))
+            )
+            original_key = extract_original_key_name(key_name, *raw_recent_key_histories)
             key_comparison = compare_key_history(key_name, recent_key_histories)
 
             last_played_at = history.last_played_at
@@ -634,6 +667,7 @@ def build_plan_song_report(
                     arrangement_id=arrangement_id,
                     arrangement_name=arrangement_name,
                     key_name=key_name,
+                    original_key=original_key,
                     recent_keys=recent_key_histories,
                     key_comparison=key_comparison,
                     needs_review=needs_review,
