@@ -76,6 +76,12 @@ If you intentionally skip any part of validation, call that out clearly.
 - If performance work is needed, first introduce bounded concurrency for independent song-history lookups and possibly plan-item fetches.
 - If async concurrency is added later, re-evaluate whether `httpx.AsyncClient` is sufficient before considering an `aiohttp` rewrite.
 
+## TODO
+
+- Report when the scheduled arrangement/key does not have a chord chart available in the selected key.
+- Report when the scheduled key lacks a matching song MP3, especially when the original key only has a YouTube/video source and no MP3; MP3s are preferred over video-only media.
+- Report when the invocation section of the plan is missing its required file upload, and also report when it does not indicate the first song's key.
+
 ## Tooling
 
 - Use `just` recipes when available.
