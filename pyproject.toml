@@ -1,0 +1,61 @@
+[project]
+name = "new-song-magician"
+version = "0.1.0"
+description = "Planning Center Services song review reporting"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1,<9",
+    "httpx>=0.27,<1",
+    "python-dateutil>=2.9,<3",
+    "tabulate>=0.9,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-cov>=6,<7",
+    "responses>=0.25,<1",
+    "ruff>=0.11.0,<1",
+    "ty>=0.0.1a1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "E",
+    "F",
+    "I",
+    "SIM",
+    "UP",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["main.py", "new_song_magician"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "-vv",
+    "--cov=new_song_magician",
+    "--cov-report=term-missing",
+]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["new_song_magician"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
