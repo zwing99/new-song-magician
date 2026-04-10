@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import click
@@ -22,13 +23,113 @@ def make_config(tmp_path: Path) -> Config:
     )
 
 
-def test_load_gmail_credentials_requires_client_secrets_file(tmp_path: Path) -> None:
+def test_load_gmail_credentials_requires_client_secrets_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     config = make_config(tmp_path)
+    monkeypatch.delenv("GMAIL_CLIENT", raising=False)
+    monkeypatch.delenv("GMAIL_SECRET", raising=False)
 
     with pytest.raises(click.ClickException) as exc_info:
         gmail.load_gmail_credentials(config)
 
-    assert "Gmail credentials file not found" in str(exc_info.value)
+    assert "Gmail credentials are unavailable" in str(exc_info.value)
+
+
+@pytest.fixture
+def fake_installed_app_flow(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    captured: dict[str, object] = {}
+
+    class FakeFlow:
+        def run_local_server(self, *, port: int) -> object:
+            captured["port"] = port
+
+            class FakeCredentials:
+                valid = True
+
+                def to_json(self) -> str:
+                    return '{"token": "token-value"}'
+
+            return FakeCredentials()
+
+    class FakeInstalledAppFlow:
+        @staticmethod
+        def from_client_config(client_config, scopes):
+            captured["client_config"] = client_config
+            captured["scopes"] = scopes
+            return FakeFlow()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "google_auth_oauthlib.flow",
+        type(
+            "FakeGoogleAuthFlowModule",
+            (),
+            {"InstalledAppFlow": FakeInstalledAppFlow},
+        )(),
+    )
+    return captured
+
+
+def test_load_gmail_credentials_uses_env_fallback_when_credentials_file_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_installed_app_flow: dict[str, object],
+) -> None:
+    config = make_config(tmp_path)
+
+    monkeypatch.setenv("GMAIL_CLIENT", "client-id")
+    monkeypatch.setenv("GMAIL_SECRET", "client-secret")
+
+    credentials = gmail.load_gmail_credentials(config)
+
+    assert credentials.valid is True
+    assert fake_installed_app_flow["port"] == 0
+    assert fake_installed_app_flow["scopes"] == gmail.SCOPES
+    assert fake_installed_app_flow["client_config"] == {
+        "installed": {
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://localhost"],
+        }
+    }
+    assert Path(config.gmail_token_file).read_text(encoding="utf-8") == '{"token": "token-value"}'
+
+
+def test_load_gmail_credentials_uses_env_fallback_when_credentials_file_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_installed_app_flow: dict[str, object],
+) -> None:
+    config = make_config(tmp_path)
+    Path(config.gmail_credentials_file).write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("GMAIL_CLIENT", "client-id")
+    monkeypatch.setenv("GMAIL_SECRET", "client-secret")
+
+    gmail.load_gmail_credentials(config)
+
+    assert fake_installed_app_flow["port"] == 0
+
+
+def test_load_gmail_credentials_ignores_empty_token_and_reauths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_installed_app_flow: dict[str, object],
+) -> None:
+    config = make_config(tmp_path)
+    Path(config.gmail_token_file).write_text("", encoding="utf-8")
+    Path(config.gmail_credentials_file).write_text(
+        '{"installed": {"client_id": "client-id", "client_secret": "client-secret"}}',
+        encoding="utf-8",
+    )
+
+    gmail.load_gmail_credentials(config)
+
+    assert fake_installed_app_flow["port"] == 0
 
 
 def test_send_report_email_builds_gmail_message(monkeypatch, tmp_path: Path) -> None:
