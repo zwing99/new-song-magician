@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import webbrowser
 from email.message import EmailMessage
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -116,9 +117,24 @@ def _load_gmail_client_config(credentials_path: Path) -> dict[str, dict[str, obj
     )
 
 
+def _run_gmail_oauth_flow(client_config: dict[str, dict[str, object]]) -> Credentials:
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    logger.info("Starting Gmail OAuth flow")
+    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+    try:
+        return flow.run_local_server(port=0)
+    except webbrowser.Error as exc:
+        logger.warning(
+            "Unable to launch a local browser for Gmail OAuth (%s). "
+            "Falling back to manual browser auth URL output.",
+            exc,
+        )
+        return flow.run_local_server(port=0, open_browser=False)
+
+
 def load_gmail_credentials(config: Config) -> Credentials:
     from google.auth.transport.requests import Request
-    from google_auth_oauthlib.flow import InstalledAppFlow
 
     token_path = Path(config.gmail_token_file)
     credentials_path = Path(config.gmail_credentials_file)
@@ -132,9 +148,7 @@ def load_gmail_credentials(config: Config) -> Credentials:
         credentials.refresh(Request())
     else:
         client_config = _load_gmail_client_config(credentials_path)
-        logger.info("Starting Gmail OAuth flow")
-        flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-        credentials = flow.run_local_server(port=0)
+        credentials = _run_gmail_oauth_flow(client_config)
 
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(credentials.to_json(), encoding="utf-8")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import webbrowser
 from pathlib import Path
 
 import click
@@ -42,8 +43,8 @@ def fake_installed_app_flow(monkeypatch: pytest.MonkeyPatch) -> dict[str, object
     captured: dict[str, object] = {}
 
     class FakeFlow:
-        def run_local_server(self, *, port: int) -> object:
-            captured["port"] = port
+        def run_local_server(self, **kwargs) -> object:
+            captured.setdefault("calls", []).append(dict(kwargs))
 
             class FakeCredentials:
                 valid = True
@@ -85,7 +86,7 @@ def test_load_gmail_credentials_uses_env_fallback_when_credentials_file_missing(
     credentials = gmail.load_gmail_credentials(config)
 
     assert credentials.valid is True
-    assert fake_installed_app_flow["port"] == 0
+    assert fake_installed_app_flow["calls"] == [{"port": 0}]
     assert fake_installed_app_flow["scopes"] == gmail.SCOPES
     assert fake_installed_app_flow["client_config"] == {
         "installed": {
@@ -112,7 +113,7 @@ def test_load_gmail_credentials_uses_env_fallback_when_credentials_file_empty(
 
     gmail.load_gmail_credentials(config)
 
-    assert fake_installed_app_flow["port"] == 0
+    assert fake_installed_app_flow["calls"] == [{"port": 0}]
 
 
 def test_load_gmail_credentials_ignores_empty_token_and_reauths(
@@ -129,7 +130,53 @@ def test_load_gmail_credentials_ignores_empty_token_and_reauths(
 
     gmail.load_gmail_credentials(config)
 
-    assert fake_installed_app_flow["port"] == 0
+    assert fake_installed_app_flow["calls"] == [{"port": 0}]
+
+
+def test_load_gmail_credentials_falls_back_to_manual_auth_when_browser_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = make_config(tmp_path)
+    Path(config.gmail_credentials_file).write_text(
+        '{"installed": {"client_id": "client-id", "client_secret": "client-secret"}}',
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+
+    class FakeFlow:
+        def run_local_server(self, **kwargs) -> object:
+            calls.append(dict(kwargs))
+            if len(calls) == 1:
+                raise webbrowser.Error("could not locate runnable browser")
+
+            class FakeCredentials:
+                valid = True
+
+                def to_json(self) -> str:
+                    return '{"token": "token-value"}'
+
+            return FakeCredentials()
+
+    class FakeInstalledAppFlow:
+        @staticmethod
+        def from_client_config(client_config, scopes):
+            return FakeFlow()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "google_auth_oauthlib.flow",
+        type(
+            "FakeGoogleAuthFlowModule",
+            (),
+            {"InstalledAppFlow": FakeInstalledAppFlow},
+        )(),
+    )
+
+    credentials = gmail.load_gmail_credentials(config)
+
+    assert credentials.valid is True
+    assert calls == [{"port": 0}, {"port": 0, "open_browser": False}]
 
 
 def test_send_report_email_builds_gmail_message(monkeypatch, tmp_path: Path) -> None:
