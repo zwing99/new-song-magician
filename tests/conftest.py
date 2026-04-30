@@ -109,22 +109,40 @@ def arrangement(arrangement_id: str, song_id: str, name: str) -> dict[str, Any]:
 
 def item(
     item_id: str,
-    song_id: str,
+    song_id: str | None,
     *,
+    title: str | None = None,
+    item_type: str = "song",
     arrangement_id: str | None = None,
     key_name: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": item_id,
         "type": "Item",
-        "attributes": {"item_type": "song", "key_name": key_name},
+        "attributes": {"item_type": item_type, "key_name": key_name, "title": title},
         "relationships": {
-            "song": {"data": {"id": song_id, "type": "Song"}},
+            "song": ({"data": {"id": song_id, "type": "Song"}} if song_id else {"data": None}),
             "arrangement": (
                 {"data": {"id": arrangement_id, "type": "Arrangement"}}
                 if arrangement_id
                 else {"data": None}
             ),
+        },
+    }
+
+
+def attachment(
+    attachment_id: str,
+    *,
+    display_name: str,
+    url: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": attachment_id,
+        "type": "Attachment",
+        "attributes": {
+            "display_name": display_name,
+            "url": url,
         },
     }
 

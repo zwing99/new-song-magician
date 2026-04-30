@@ -67,8 +67,10 @@ If you intentionally skip any part of validation, call that out clearly.
 - Brand-new songs with no prior in-folder schedule should remain explicitly visible as needing review.
 - Song history lookups use an in-memory per-run `lru_cache` for history candidates; avoid adding persistent caching unless there is a clear stale-data strategy.
 - `review-folder` prints human-readable output by default and supports `--print/--no-print` to control stdout independently from email sending.
+- `review-folder` supports `--call-to-worship/--no-call-to-worship` and `PCO_REVIEW_FOLDER_CALL_TO_WORSHIP` to control whether the call-to-worship check is included.
 - Human-readable reports now include clickable Planning Center links for the folder dashboard, plans, songs, and prior plans.
 - Email output is HTML-first, styled for broad email-client compatibility, and includes song links plus arrangement and scheduled-key details when present on the plan item.
+- Each reviewed plan also includes a call-to-worship row that checks for a real musical key in the item title and lists any attachments linked to that item.
 
 ## Future Guidance
 

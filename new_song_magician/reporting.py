@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from html import escape
@@ -10,11 +11,44 @@ from dateutil import parser as dtparser
 from tabulate import tabulate
 
 from .client import PCOClient
-from .models import PlanSongReport, SongHistory
+from .models import AttachmentLink, PlanSongReport, SongHistory
 
 IGNORED_SONG_TITLES = {"doxology"}
 SERVICES_BASE_URL = "https://services.planningcenteronline.com"
 logger = logging.getLogger(__name__)
+CALL_TO_WORSHIP_TITLE_PATTERN = re.compile(r"\[key of (?P<key>[^\]]+)\]", re.IGNORECASE)
+VALID_MUSICAL_KEYS = frozenset(
+    {
+        "A",
+        "Ab",
+        "Abm",
+        "Am",
+        "B",
+        "Bb",
+        "Bbm",
+        "Bm",
+        "C",
+        "C#",
+        "C#m",
+        "Cm",
+        "D",
+        "Db",
+        "Dbm",
+        "Dm",
+        "E",
+        "Eb",
+        "Ebm",
+        "Em",
+        "F",
+        "F#",
+        "F#m",
+        "Fm",
+        "G",
+        "Gb",
+        "Gbm",
+        "Gm",
+    }
+)
 
 
 def parse_dt(value: str | None) -> datetime | None:
@@ -57,6 +91,18 @@ def arrangement_url(song_id: str, arrangement_id: str) -> str:
     return f"{SERVICES_BASE_URL}/songs/{song_id}/arrangements/{arrangement_id}"
 
 
+def format_attachment_links(attachment_links: tuple[AttachmentLink, ...]) -> str:
+    if not attachment_links:
+        return ""
+    parts: list[str] = []
+    for attachment in attachment_links:
+        if attachment.url:
+            parts.append(f"{attachment.name}: {attachment.url}")
+        else:
+            parts.append(attachment.name)
+    return "; ".join(parts)
+
+
 def normalize_key_name(key_name: str | None) -> str | None:
     if not key_name:
         return None
@@ -94,36 +140,93 @@ def compare_key_history(current_key: str | None, recent_keys: tuple[str, ...]) -
     return "Matches one recent key"
 
 
+def normalize_musical_key_name(key_name: str | None) -> str | None:
+    if not key_name:
+        return None
+    compact_key = "".join(key_name.split())
+    if not compact_key:
+        return None
+
+    if len(compact_key) > 1 and compact_key[-1] in {"m", "M"}:
+        note = compact_key[:-1]
+        suffix = "m"
+    else:
+        note = compact_key
+        suffix = ""
+
+    normalized_note = note[0].upper() + note[1:].lower() if note else ""
+    normalized_key = f"{normalized_note}{suffix}"
+    if normalized_key not in VALID_MUSICAL_KEYS:
+        return None
+    return normalized_key
+
+
+def call_to_worship_key_from_title(title: str | None) -> tuple[bool, str | None]:
+    if not title:
+        return False, None
+    match = CALL_TO_WORSHIP_TITLE_PATTERN.search(title)
+    if not match:
+        return False, None
+    key_name = normalize_musical_key_name(match.group("key"))
+    if not key_name:
+        return False, None
+    return True, key_name
+
+
+def is_call_to_worship_item(item: dict[str, Any]) -> bool:
+    title = item.get("attributes", {}).get("title") or ""
+    return "call to worship" in title.casefold()
+
+
+def describe_call_to_worship_row(row: PlanSongReport) -> str:
+    details: list[str] = []
+    details.append("Key set in title" if row.item_key_is_set else "Missing key in title")
+    details.append("Attachment present" if row.attachment_links else "Missing attachment")
+    return "; ".join(details)
+
+
 def render_plan_table(rows: list[PlanSongReport]) -> str:
     table_rows: list[dict[str, str]] = []
 
     for row in rows:
-        if row.needs_review:
-            status = "REVIEW"
-            last_scheduled = (
-                "never scheduled in folder"
-                if row.last_played_at is None
-                else format_dt(row.last_played_at)
-            )
+        if row.report_type == "call_to_worship":
+            status = "REVIEW" if row.needs_review else "OK"
+            current_key = row.key_name or "missing from title"
+            last_scheduled = describe_call_to_worship_row(row)
             last_plan_link = ""
         else:
-            status = "OK"
-            played_in = row.last_service_type_name or "unknown service type"
-            played_on = row.last_plan_dates or format_dt(row.last_played_at)
-            last_scheduled = f"{played_on} ({played_in})"
-            last_plan_link = plan_url(row.last_plan_id) if row.last_plan_id else ""
+            if row.needs_review:
+                status = "REVIEW"
+                last_scheduled = (
+                    "never scheduled in folder"
+                    if row.last_played_at is None
+                    else format_dt(row.last_played_at)
+                )
+                last_plan_link = ""
+            else:
+                status = "OK"
+                played_in = row.last_service_type_name or "unknown service type"
+                played_on = row.last_plan_dates or format_dt(row.last_played_at)
+                last_scheduled = f"{played_on} ({played_in})"
+                last_plan_link = plan_url(row.last_plan_id) if row.last_plan_id else ""
+            current_key = row.key_name or "unknown"
 
         table_rows.append(
             {
                 "Status": status,
-                "Song": row.song_title,
-                "Song Link": song_url(row.song_id),
-                "Current Key": row.key_name or "unknown",
+                "Entry": row.item_title or row.song_title or "Unknown",
+                "Entry Link": song_url(row.song_id) if row.song_id else "",
+                "Current Key": current_key,
                 "Original Key": row.original_key or "",
                 "Recent Keys": format_recent_keys(row.recent_keys),
-                "Key Comparison": row.key_comparison or "",
+                "Key Comparison": (
+                    describe_call_to_worship_row(row)
+                    if row.report_type == "call_to_worship"
+                    else row.key_comparison or ""
+                ),
                 "Last Scheduled": last_scheduled,
                 "Last Plan Link": last_plan_link,
+                "Attachments": format_attachment_links(row.attachment_links),
             }
         )
 
@@ -134,52 +237,112 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
     body_rows: list[str] = []
 
     for row in rows:
-        if row.needs_review:
-            status = "REVIEW"
-            status_bg = "#fff1e8"
-            status_fg = "#bc4c00"
-            last_scheduled = (
-                "never scheduled in folder"
-                if row.last_played_at is None
-                else format_dt(row.last_played_at)
-            )
+        if row.report_type == "call_to_worship":
+            status = "REVIEW" if row.needs_review else "OK"
+            status_bg = "#fff1e8" if row.needs_review else "#e7f6ec"
+            status_fg = "#bc4c00" if row.needs_review else "#116329"
+            last_scheduled = describe_call_to_worship_row(row)
             last_plan_link = ""
         else:
-            status = "OK"
-            status_bg = "#e7f6ec"
-            status_fg = "#116329"
-            played_in = row.last_service_type_name or "unknown service type"
-            played_on = row.last_plan_dates or format_dt(row.last_played_at)
-            last_scheduled = f"{played_on} ({played_in})"
-            last_plan_link = (
-                f'<a href="{escape(plan_url(row.last_plan_id))}" '
-                'style="color:#0969da;text-decoration:none;font-weight:600;">'
-                "Open last plan</a>"
-                if row.last_plan_id
-                else ""
-            )
+            status = "REVIEW" if row.needs_review else "OK"
+            status_bg = "#fff1e8" if row.needs_review else "#e7f6ec"
+            status_fg = "#bc4c00" if row.needs_review else "#116329"
+            if row.needs_review:
+                last_scheduled = (
+                    "never scheduled in folder"
+                    if row.last_played_at is None
+                    else format_dt(row.last_played_at)
+                )
+                last_plan_link = ""
+            else:
+                played_in = row.last_service_type_name or "unknown service type"
+                played_on = row.last_plan_dates or format_dt(row.last_played_at)
+                last_scheduled = f"{played_on} ({played_in})"
+                last_plan_link = (
+                    f'<a href="{escape(plan_url(row.last_plan_id))}" '
+                    'style="color:#0969da;text-decoration:none;font-weight:600;">'
+                    "Open last plan</a>"
+                    if row.last_plan_id
+                    else ""
+                )
 
         last_plan_cell = last_plan_link or '<span style="color:#9ca3af;font-size:13px;">None</span>'
-        arrangement_cell = (
-            f'<a href="{escape(arrangement_url(row.song_id, row.arrangement_id))}" '
-            'style="color:#0969da;text-decoration:none;font-size:13px;font-weight:600;">'
-            f"{escape(row.arrangement_name or 'Open arrangement')}</a>"
-            if row.arrangement_id
-            else '<span style="color:#9ca3af;font-size:13px;">No arrangement linked</span>'
-        )
-        key_cell = escape(normalize_key_name(row.key_name) or "Unknown key")
-        original_key_cell = (
-            '<div style="margin-top:4px;font-size:13px;color:#475467;">Original key: '
-            f"{escape(row.original_key)}</div>"
-            if row.original_key
+        if row.report_type == "call_to_worship":
+            entry_label = row.item_title or "Call to worship"
+            entry_link = ""
+            arrangement_block = ""
+            key_cell = escape(row.key_name or "Missing from title")
+            original_key_cell = ""
+            recent_keys_cell = ""
+            key_comparison_cell = (
+                '<div style="margin-top:4px;font-size:13px;color:#475467;">'
+                f"{escape(describe_call_to_worship_row(row))}</div>"
+            )
+            attachment_lines = [
+                (
+                    f'<a href="{escape(attachment.url)}" '
+                    'style="color:#0969da;text-decoration:none;font-size:13px;font-weight:600;">'
+                    f"{escape(attachment.name)}</a>"
+                )
+                if attachment.url
+                else f'<span style="font-size:13px;color:#475467;">{escape(attachment.name)}</span>'
+                for attachment in row.attachment_links
+            ]
+            attachments_cell = (
+                '<div style="margin-top:4px;font-size:13px;color:#475467;">Attachments: '
+                + ", ".join(attachment_lines)
+                + "</div>"
+                if attachment_lines
+                else (
+                    '<div style="margin-top:4px;font-size:13px;color:#475467;">'
+                    "Attachments: None</div>"
+                )
+            )
+        else:
+            entry_label = row.song_title or "Unknown song"
+            entry_link = (
+                f'<a href="{escape(song_url(row.song_id))}" '
+                'style="color:#0969da;text-decoration:none;font-size:16px;font-weight:700;">'
+                f"{escape(entry_label)}</a>"
+                if row.song_id
+                else escape(entry_label)
+            )
+            arrangement_block = (
+                '<div style="margin-top:10px;font-size:13px;color:#475467;">Arrangement: '
+                + (
+                    f'<a href="{escape(arrangement_url(row.song_id, row.arrangement_id))}" '
+                    'style="color:#0969da;text-decoration:none;font-size:13px;font-weight:600;">'
+                    f"{escape(row.arrangement_name or 'Open arrangement')}</a>"
+                    if row.song_id and row.arrangement_id
+                    else '<span style="color:#9ca3af;font-size:13px;">No arrangement linked</span>'
+                )
+                + "</div>"
+            )
+            key_cell = escape(normalize_key_name(row.key_name) or "Unknown key")
+            original_key_cell = (
+                '<div style="margin-top:4px;font-size:13px;color:#475467;">Original key: '
+                f"{escape(row.original_key)}</div>"
+                if row.original_key
+                else ""
+            )
+            recent_keys_cell = escape(format_recent_keys(row.recent_keys))
+            key_comparison_cell = (
+                '<div style="margin-top:4px;font-size:13px;color:#475467;">'
+                f"{escape(row.key_comparison)}</div>"
+                if row.key_comparison
+                else ""
+            )
+            attachments_cell = ""
+
+        recent_keys_block = (
+            '<div style="margin-top:4px;font-size:13px;color:#475467;">Recent keys: '
+            f"{recent_keys_cell}</div>"
+            if row.report_type != "call_to_worship"
             else ""
         )
-        recent_keys_cell = escape(format_recent_keys(row.recent_keys))
-        key_comparison_cell = (
-            '<div style="margin-top:4px;font-size:13px;color:#475467;">'
-            f"{escape(row.key_comparison)}</div>"
-            if row.key_comparison
-            else ""
+        row_id_label = "Item" if row.report_type == "call_to_worship" else "Song"
+        row_id_value = (
+            row.last_item_id or "" if row.report_type == "call_to_worship" else (row.song_id or "")
         )
 
         body_rows.append(
@@ -190,21 +353,19 @@ def render_plan_table_html(rows: list[PlanSongReport]) -> str:
             'border-radius:999px;">'
             f"{escape(status)}</span></td>"
             '<td style="border-top:1px solid #e5e7eb;padding:16px 12px;vertical-align:top;">'
-            f'<a href="{escape(song_url(row.song_id))}" '
-            'style="color:#0969da;text-decoration:none;font-size:16px;font-weight:700;">'
-            f"{escape(row.song_title)}</a>"
-            f'<div style="margin-top:6px;color:#6b7280;font-size:12px;">Song ID: '
-            f"{escape(row.song_id)}</div>"
-            '<div style="margin-top:10px;font-size:13px;color:#475467;">Arrangement: '
-            f"{arrangement_cell}</div>"
+            f"{entry_link or escape(entry_label)}"
+            f'<div style="margin-top:6px;color:#6b7280;font-size:12px;">'
+            f"{escape(row_id_label)} ID: "
+            f"{escape(row_id_value)}</div>"
+            f"{arrangement_block}"
             '<div style="margin-top:4px;font-size:13px;color:#475467;">Scheduled key: '
             f"{key_cell}</div>"
             f"{original_key_cell}"
-            '<div style="margin-top:4px;font-size:13px;color:#475467;">Recent keys: '
-            f"{recent_keys_cell}</div>"
+            f"{recent_keys_block}"
             f"{key_comparison_cell}</td>"
             '<td style="border-top:1px solid #e5e7eb;padding:16px 12px;vertical-align:top;">'
             f'<div style="font-size:14px;color:#111827;">{escape(last_scheduled)}</div>'
+            f"{attachments_cell}"
             "</td>"
             '<td style="border-top:1px solid #e5e7eb;padding:16px 12px;vertical-align:top;">'
             f"{last_plan_cell}"
@@ -471,6 +632,28 @@ def extract_real_song_items(items: list[dict[str, Any]]) -> list[tuple[str, dict
     return song_items
 
 
+def get_item_attachments(
+    api: PCOClient,
+    service_type_id: str,
+    plan_id: str,
+    item_id: str,
+) -> tuple[AttachmentLink, ...]:
+    attachments: list[AttachmentLink] = []
+    for attachment in api.paginate(
+        f"/services/v2/service_types/{service_type_id}/plans/{plan_id}/items/{item_id}/attachments"
+    ):
+        attrs = attachment.get("attributes", {})
+        attachments.append(
+            AttachmentLink(
+                name=attrs.get("display_name")
+                or attrs.get("filename")
+                or f"Attachment {attachment.get('id', '')}".strip(),
+                url=attrs.get("url") or attrs.get("linked_url") or attrs.get("remote_link"),
+            )
+        )
+    return tuple(attachments)
+
+
 def get_last_song_history_before(
     api: PCOClient,
     song_id: str,
@@ -552,6 +735,7 @@ def build_plan_song_report(
     all_future: bool,
     review_window_years: int,
     key_history_count: int,
+    include_call_to_worship: bool = True,
 ) -> list[PlanSongReport]:
     service_types = get_folder_service_types(api, folder_id)
     folder_service_type_ids = {service_type["id"] for service_type in service_types}
@@ -611,13 +795,94 @@ def build_plan_song_report(
             api, service_type_id, plan_id
         )
         cutoff = report_now - timedelta(days=review_window_years * 365)
+        call_to_worship_item = next((item for item in items if is_call_to_worship_item(item)), None)
+        song_items = [
+            (song_id, item)
+            for song_id, item in extract_real_song_items(items)
+            if not should_ignore_song(
+                normalize_song_title(songs_by_id.get(song_id, {"id": song_id, "attributes": {}}))
+            )
+        ]
 
-        for song_id, item in extract_real_song_items(items):
+        if not song_items:
+            logger.debug(
+                "Skipping plan %s (%s) because it has no linked songs yet",
+                plan_title,
+                plan_id,
+            )
+            continue
+
+        if include_call_to_worship:
+            if call_to_worship_item is None:
+                reports.append(
+                    PlanSongReport(
+                        service_type_id=service_type_id,
+                        service_type_name=service_type_name,
+                        plan_id=plan_id,
+                        plan_title=plan_title,
+                        sort_date=plan_dt,
+                        song_id=None,
+                        song_title=None,
+                        arrangement_id=None,
+                        arrangement_name=None,
+                        key_name=None,
+                        original_key=None,
+                        recent_keys=(),
+                        key_comparison=None,
+                        needs_review=True,
+                        last_played_at=None,
+                        last_plan_dates=None,
+                        last_service_type_name=None,
+                        last_plan_id=None,
+                        last_item_id=None,
+                        report_type="call_to_worship",
+                        item_title="Call to worship",
+                        item_key_is_set=False,
+                        attachment_links=(),
+                    )
+                )
+            else:
+                call_to_worship_title = call_to_worship_item.get("attributes", {}).get("title")
+                call_to_worship_item_id = call_to_worship_item.get("id")
+                key_is_set, call_to_worship_key = call_to_worship_key_from_title(
+                    call_to_worship_title
+                )
+                attachment_links = (
+                    get_item_attachments(api, service_type_id, plan_id, call_to_worship_item_id)
+                    if call_to_worship_item_id
+                    else ()
+                )
+                reports.append(
+                    PlanSongReport(
+                        service_type_id=service_type_id,
+                        service_type_name=service_type_name,
+                        plan_id=plan_id,
+                        plan_title=plan_title,
+                        sort_date=plan_dt,
+                        song_id=None,
+                        song_title=None,
+                        arrangement_id=None,
+                        arrangement_name=None,
+                        key_name=call_to_worship_key,
+                        original_key=None,
+                        recent_keys=(),
+                        key_comparison=None,
+                        needs_review=not key_is_set or not attachment_links,
+                        last_played_at=None,
+                        last_plan_dates=None,
+                        last_service_type_name=None,
+                        last_plan_id=None,
+                        last_item_id=call_to_worship_item_id,
+                        report_type="call_to_worship",
+                        item_title=call_to_worship_title or "Call to worship",
+                        item_key_is_set=key_is_set,
+                        attachment_links=attachment_links,
+                    )
+                )
+
+        for song_id, item in song_items:
             song_obj = songs_by_id.get(song_id, {"id": song_id, "attributes": {}})
             song_title = normalize_song_title(song_obj)
-            if should_ignore_song(song_title):
-                logger.debug("Skipping ignored song %r in plan %s", song_title, plan_id)
-                continue
 
             arrangement_rel = item.get("relationships", {}).get("arrangement", {}).get("data")
             arrangement_id = arrangement_rel.get("id") if arrangement_rel else None

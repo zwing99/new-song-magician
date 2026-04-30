@@ -28,14 +28,20 @@ class SongHistory:
 
 
 @dataclass
+class AttachmentLink:
+    name: str
+    url: str | None
+
+
+@dataclass
 class PlanSongReport:
     service_type_id: str
     service_type_name: str
     plan_id: str
     plan_title: str
     sort_date: datetime | None
-    song_id: str
-    song_title: str
+    song_id: str | None
+    song_title: str | None
     arrangement_id: str | None
     arrangement_name: str | None
     key_name: str | None
@@ -48,3 +54,7 @@ class PlanSongReport:
     last_service_type_name: str | None
     last_plan_id: str | None
     last_item_id: str | None
+    report_type: str = "song"
+    item_title: str | None = None
+    item_key_is_set: bool | None = None
+    attachment_links: tuple[AttachmentLink, ...] = ()

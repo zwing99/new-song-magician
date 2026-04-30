@@ -195,6 +195,14 @@ def lookup_folder(
     show_default=True,
     help="Print the report to stdout.",
 )
+@click.option(
+    "--call-to-worship/--no-call-to-worship",
+    "call_to_worship",
+    default=True,
+    show_default=True,
+    envvar="PCO_REVIEW_FOLDER_CALL_TO_WORSHIP",
+    help="Include the call-to-worship title and attachment check in the report.",
+)
 @click.option("--json-output", is_flag=True, help="Emit machine-readable JSON.")
 @click.pass_obj
 def review_folder(
@@ -206,6 +214,7 @@ def review_folder(
     key_history_count: int,
     emails: tuple[str, ...],
     print_output: bool,
+    call_to_worship: bool,
     json_output: bool,
 ) -> None:
     """Report upcoming plan songs and whether they need review."""
@@ -219,6 +228,7 @@ def review_folder(
             all_future=all_future,
             review_window_years=review_window_years,
             key_history_count=key_history_count,
+            include_call_to_worship=call_to_worship,
         )
     finally:
         api.close()
@@ -226,6 +236,7 @@ def review_folder(
     if json_output:
         payload = [
             {
+                "report_type": row.report_type,
                 "service_type_id": row.service_type_id,
                 "service_type_name": row.service_type_name,
                 "plan_id": row.plan_id,
@@ -234,15 +245,19 @@ def review_folder(
                 "sort_date": row.sort_date.isoformat() if row.sort_date else None,
                 "song_id": row.song_id,
                 "song_title": row.song_title,
+                "item_title": row.item_title,
+                "item_key_is_set": row.item_key_is_set,
                 "arrangement_id": row.arrangement_id,
                 "arrangement_name": row.arrangement_name,
                 "arrangement_url": (
-                    arrangement_url(row.song_id, row.arrangement_id) if row.arrangement_id else None
+                    arrangement_url(row.song_id, row.arrangement_id)
+                    if row.song_id and row.arrangement_id
+                    else None
                 ),
                 "key_name": row.key_name,
                 "recent_keys": list(row.recent_keys),
                 "key_comparison": row.key_comparison,
-                "song_url": song_url(row.song_id),
+                "song_url": song_url(row.song_id) if row.song_id else None,
                 "needs_review": row.needs_review,
                 "last_played_at": row.last_played_at.isoformat() if row.last_played_at else None,
                 "last_plan_dates": row.last_plan_dates,
@@ -250,6 +265,10 @@ def review_folder(
                 "last_plan_id": row.last_plan_id,
                 "last_plan_url": plan_url(row.last_plan_id) if row.last_plan_id else None,
                 "last_item_id": row.last_item_id,
+                "attachment_links": [
+                    {"name": attachment.name, "url": attachment.url}
+                    for attachment in row.attachment_links
+                ],
                 "folder_url": folder_dashboard_url(folder_id),
             }
             for row in reports

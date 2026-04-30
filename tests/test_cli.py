@@ -4,7 +4,16 @@ import sys
 
 import responses
 from click.testing import CliRunner
-from conftest import add_common_responses, arrangement, item, payload, plan, song, song_schedule
+from conftest import (
+    add_common_responses,
+    arrangement,
+    attachment,
+    item,
+    payload,
+    plan,
+    song,
+    song_schedule,
+)
 
 from new_song_magician.cli import BASE_URL, cli
 
@@ -50,11 +59,29 @@ def test_review_folder_cli_json_output(runner: CliRunner) -> None:
     responses.get(
         f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items",
         json=payload(
-            [item("item-1", "song-1", arrangement_id="arr-1", key_name="D")],
+            [
+                item(
+                    "item-ctw-1",
+                    None,
+                    item_type="item",
+                    title="Call to worship; Encouragement; Time for Reflection [Key of C]",
+                ),
+                item("item-1", "song-1", arrangement_id="arr-1", key_name="D"),
+            ],
             included=[
                 song("song-1", "King of Glory"),
                 arrangement("arr-1", "song-1", "The Worship Initiative"),
             ],
+        ),
+    )
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items/item-ctw-1/attachments",
+        json=payload(
+            [
+                attachment(
+                    "att-1", display_name="Reflection Pad", url="https://files.example/ctw-1.pdf"
+                )
+            ]
         ),
     )
     responses.get(
@@ -89,6 +116,9 @@ def test_review_folder_cli_json_output(runner: CliRunner) -> None:
     )
 
     assert result.exit_code == 0
+    assert '"report_type": "call_to_worship"' in result.output
+    assert '"item_key_is_set": true' in result.output
+    assert '"attachment_links": [' in result.output
     assert '"song_title": "King of Glory"' in result.output
     assert '"arrangement_name": "The Worship Initiative"' in result.output
     assert '"key_name": "D"' in result.output
@@ -122,11 +152,29 @@ def test_review_folder_cli_sends_email_to_flagged_recipients(
     responses.get(
         f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items",
         json=payload(
-            [item("item-1", "song-1", arrangement_id="arr-1", key_name="D")],
+            [
+                item(
+                    "item-ctw-1",
+                    None,
+                    item_type="item",
+                    title="Call to worship; Encouragement; Time for Reflection [Key of C]",
+                ),
+                item("item-1", "song-1", arrangement_id="arr-1", key_name="D"),
+            ],
             included=[
                 song("song-1", "King of Glory"),
                 arrangement("arr-1", "song-1", "The Worship Initiative"),
             ],
+        ),
+    )
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items/item-ctw-1/attachments",
+        json=payload(
+            [
+                attachment(
+                    "att-1", display_name="Reflection Pad", url="https://files.example/ctw-1.pdf"
+                )
+            ]
         ),
     )
     responses.get(
@@ -175,7 +223,11 @@ def test_review_folder_cli_sends_email_to_flagged_recipients(
     assert "<table" in str(captured["html_body"])
     assert "https://services.planningcenteronline.com/plans/plan-1" in str(captured["text_body"])
     assert "https://services.planningcenteronline.com/songs/song-1" in str(captured["text_body"])
+    assert "Reflection Pad" in str(captured["text_body"])
     assert "The Worship Initiative" in str(captured["html_body"])
+    assert "Call to worship; Encouragement; Time for Reflection [Key of C]" in str(
+        captured["html_body"]
+    )
     assert "Scheduled key: D" in str(captured["html_body"])
     assert "King of Glory" in result.output
 
@@ -192,7 +244,28 @@ def test_review_folder_cli_reads_email_recipients_from_env_var(
     responses.get(f"{BASE_URL}/services/v2/service_types/st-2/plans", json=payload([]))
     responses.get(
         f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items",
-        json=payload([item("item-1", "song-1")], included=[song("song-1", "King of Glory")]),
+        json=payload(
+            [
+                item(
+                    "item-ctw-1",
+                    None,
+                    item_type="item",
+                    title="Call to worship; Encouragement; Time for Reflection [Key of C]",
+                ),
+                item("item-1", "song-1"),
+            ],
+            included=[song("song-1", "King of Glory")],
+        ),
+    )
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items/item-ctw-1/attachments",
+        json=payload(
+            [
+                attachment(
+                    "att-1", display_name="Reflection Pad", url="https://files.example/ctw-1.pdf"
+                )
+            ]
+        ),
     )
     responses.get(
         f"{BASE_URL}/services/v2/songs/song-1/song_schedules",
@@ -243,7 +316,28 @@ def test_review_folder_cli_no_print_suppresses_stdout_when_emailing(
     responses.get(f"{BASE_URL}/services/v2/service_types/st-2/plans", json=payload([]))
     responses.get(
         f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items",
-        json=payload([item("item-1", "song-1")], included=[song("song-1", "King of Glory")]),
+        json=payload(
+            [
+                item(
+                    "item-ctw-1",
+                    None,
+                    item_type="item",
+                    title="Call to worship; Encouragement; Time for Reflection [Key of C]",
+                ),
+                item("item-1", "song-1"),
+            ],
+            included=[song("song-1", "King of Glory")],
+        ),
+    )
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items/item-ctw-1/attachments",
+        json=payload(
+            [
+                attachment(
+                    "att-1", display_name="Reflection Pad", url="https://files.example/ctw-1.pdf"
+                )
+            ]
+        ),
     )
     responses.get(
         f"{BASE_URL}/services/v2/songs/song-1/song_schedules",
@@ -269,3 +363,50 @@ def test_review_folder_cli_no_print_suppresses_stdout_when_emailing(
 
     assert result.exit_code == 0
     assert result.output == ""
+
+
+@responses.activate
+def test_review_folder_cli_can_disable_call_to_worship_with_env_var(runner: CliRunner) -> None:
+    add_common_responses(responses)
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans",
+        json=payload([plan("plan-1", "Plan One", "2026-04-10T10:00:00Z")]),
+    )
+    responses.get(f"{BASE_URL}/services/v2/service_types/st-2/plans", json=payload([]))
+    responses.get(
+        f"{BASE_URL}/services/v2/service_types/st-1/plans/plan-1/items",
+        json=payload(
+            [
+                item(
+                    "item-ctw-1",
+                    None,
+                    item_type="item",
+                    title="Call to worship; Encouragement; Time for Reflection [Key of Pad]",
+                ),
+                item("item-1", "song-1"),
+            ],
+            included=[song("song-1", "King of Glory")],
+        ),
+    )
+    responses.get(
+        f"{BASE_URL}/services/v2/songs/song-1/song_schedules",
+        json=payload([]),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "--app-id",
+            "app-id",
+            "--secret",
+            "secret",
+            "review-folder",
+            "folder-1",
+            "--json-output",
+        ],
+        env={"PCO_REVIEW_FOLDER_CALL_TO_WORSHIP": "false"},
+    )
+
+    assert result.exit_code == 0
+    assert '"report_type": "song"' in result.output
+    assert '"report_type": "call_to_worship"' not in result.output
